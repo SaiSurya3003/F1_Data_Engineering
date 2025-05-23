@@ -64,16 +64,50 @@ def parse_custom_format_to_timedelta(time_val):
     return pd.NaT
 
 
+def format_timedelta_hhmmssms(td):
+    """Formats a pandas Timedelta to HH:MM:SS:SSS string, without days."""
+    if pd.isna(td):
+        return np.nan
+    total_milliseconds = int(td.total_seconds() * 1000)
+    sign = '-' if total_milliseconds < 0 else ''
+    abs_milliseconds = abs(total_milliseconds)
+
+    hours = abs_milliseconds // (3600 * 1000)
+    minutes = (abs_milliseconds % (3600 * 1000)) // (60 * 1000)
+    seconds = (abs_milliseconds % (60 * 1000)) // 1000
+    milliseconds = abs_milliseconds % 1000
+    return f"{sign}{hours:02d}:{minutes:02d}:{seconds:02d}:{milliseconds:03d}"
+
+
+def format_timedelta_mmssms(td):
+    """Formats a pandas Timedelta to MM:SS:SSS string, without days or hours."""
+    if pd.isna(td):
+        return np.nan
+    total_milliseconds = int(td.total_seconds() * 1000)
+    sign = '-' if total_milliseconds < 0 else ''
+    abs_milliseconds = abs(total_milliseconds)
+
+    # We only care about minutes, seconds, milliseconds for this format
+    total_seconds_abs = abs_milliseconds // 1000
+    minutes = total_seconds_abs // 60
+    seconds = total_seconds_abs % 60
+    milliseconds = abs_milliseconds % 1000
+    return f"{sign}{minutes:02d}:{seconds:02d}:{milliseconds:03d}"
+
+
 # Define column mappings for transformation
 # File name -> list of columns with custom string time formats
 STRING_COLUMNS_TO_TIMEDELTA = {
-    'session_results.csv': ['Time', 'Q1', 'Q2', 'Q3'],
-    'laps_data.csv': [
-        'LapTime', 'Sector1Time', 'Sector2Time', 'Sector3Time',
-        'Time', 'PitInTime', 'PitOutTime',
-        'Sector1SessionTime', 'Sector2SessionTime', 'Sector3SessionTime', 'LapStartTime'
-    ],
-    'weather_data.csv': ['Time']
+    'session_results.csv': {'Time': 'hhmmssms', 'Q1': 'hhmmssms', 'Q2': 'hhmmssms', 'Q3': 'hhmmssms'},
+    'laps_data.csv': {
+        'LapTime': 'mmssms', 'Sector1Time': 'mmssms', 'Sector2Time': 'mmssms', 'Sector3Time': 'mmssms',
+        'Time': 'hhmmssms',
+        'PitInTime': 'hhmmssms',  # <--- CHANGED TO HH:MM:SS:SSS
+        'PitOutTime': 'hhmmssms',  # <--- CHANGED TO HH:MM:SS:SSS
+        'Sector1SessionTime': 'hhmmssms', 'Sector2SessionTime': 'hhmmssms', 'Sector3SessionTime': 'hhmmssms',
+        'LapStartTime': 'hhmmssms'
+    },
+    'weather_data.csv': {'Time': 'hhmmssms'}
 }
 
 # File name -> list of columns with ISO date/datetime strings
@@ -101,14 +135,19 @@ def transform_csv_file(input_file_path, output_file_path):
 
         file_name = os.path.basename(input_file_path)
         transformed_cols_count = 0
+        columns_to_format_on_output = {}  # To store (column, format_function) for post-processing
 
         # 1. Transform custom string format columns to Timedelta
         string_td_cols_transformed = 0
         if file_name in STRING_COLUMNS_TO_TIMEDELTA:
-            cols_to_parse = STRING_COLUMNS_TO_TIMEDELTA[file_name]
-            for col in cols_to_parse:
+            cols_map = STRING_COLUMNS_TO_TIMEDELTA[file_name]
+            for col, format_key in cols_map.items():
                 if col in df.columns:
                     df[col] = df[col].apply(parse_custom_format_to_timedelta)
+                    if format_key == 'hhmmssms':
+                        columns_to_format_on_output[col] = format_timedelta_hhmmssms
+                    elif format_key == 'mmssms':
+                        columns_to_format_on_output[col] = format_timedelta_mmssms
                     string_td_cols_transformed += 1
             if string_td_cols_transformed > 0:
                 logging.debug(
@@ -137,6 +176,9 @@ def transform_csv_file(input_file_path, output_file_path):
                     # Convert column to numeric first, coercing errors to NaN
                     numeric_series = pd.to_numeric(df[col], errors='coerce')
                     df[col] = pd.to_timedelta(numeric_series, unit='s', errors='coerce')
+                    # Decide on format for these columns if needed, default to HH:MM:SS:SSS if not specified
+                    if col not in columns_to_format_on_output:  # Only add if not already added by string conversion
+                        columns_to_format_on_output[col] = format_timedelta_hhmmssms  # Default to hhmmssms for these
                     numeric_td_cols_transformed += 1
             if numeric_td_cols_transformed > 0:
                 logging.debug(
@@ -145,7 +187,14 @@ def transform_csv_file(input_file_path, output_file_path):
 
         if transformed_cols_count > 0:
             os.makedirs(os.path.dirname(output_file_path), exist_ok=True)
-            df.to_csv(output_file_path, index=False)
+
+            # Apply final string formatting to Timedelta columns before saving
+            df_to_save = df.copy()  # Work on a copy to apply string formatting for CSV output
+            for col, format_func in columns_to_format_on_output.items():
+                if col in df_to_save.columns:
+                    df_to_save[col] = df_to_save[col].apply(format_func)
+
+            df_to_save.to_csv(output_file_path, index=False)
             logging.info(f"Saved transformed file ({transformed_cols_count} cols affected): {output_file_path}")
         else:
             logging.info(f"No transformations applied or specified for {input_file_path}. Skipping save.")
@@ -191,13 +240,13 @@ if __name__ == '__main__':
 
     # Input directory where f1_data_extract.py saves its output
     # Path relative to PROJECT_ROOT: src/extract/f1_data_output_csvs
-    INPUT_DIR_PATH_PARTS = ['src', 'extract', 'f1_data_output_csvs']
+    INPUT_DIR_PATH_PARTS = ['src', 'extract', 'f1_raw_data_output']
     INPUT_DIRECTORY = os.path.join(PROJECT_ROOT, *INPUT_DIR_PATH_PARTS)
 
     # Output directory for transformed files
     # Path relative to PROJECT_ROOT: src/transform/f1_data_transformed_time_objects
     OUTPUT_DIR_PARENT_PATH_PARTS = ['src', 'transform']
-    OUTPUT_SUBDIR_NAME = 'f1_data_transformed_time_objects'
+    OUTPUT_SUBDIR_NAME = 'f1_transformed_data_output'
 
     OUTPUT_DIRECTORY_BASE = os.path.join(PROJECT_ROOT, *OUTPUT_DIR_PARENT_PATH_PARTS)
     OUTPUT_DIRECTORY = os.path.join(OUTPUT_DIRECTORY_BASE, OUTPUT_SUBDIR_NAME)

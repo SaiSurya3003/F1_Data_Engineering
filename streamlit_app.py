@@ -1,13 +1,13 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go  # For more custom plots if needed
+import plotly.graph_objects as go
 import os
-import numpy as np  # For handling potential NaN in numeric conversions
+import numpy as np
 
 # --- Configuration ---
 BASE_DATA_PATH = os.path.join('src', 'transform',
-                              'f1_data_transformed_timedelta_no_dh')  # From your last transform script
+                              'f1_transformed_data_output')  # From your last transform script
 
 
 # --- Helper Functions ---
@@ -39,16 +39,37 @@ def get_subdirectories(path):
 
 
 def safe_to_timedelta_seconds(series, column_name=""):
-    """Safely converts a series of timedelta strings to total seconds."""
-    if series is None:
+    """Safely converts a series of timedelta strings to total seconds.
+    Handles 'HH:MM:SS:ms' format by converting to 'HH:MM:SS.ms'.
+    """
+    if series is None or series.empty:
         return pd.Series(dtype='float64')
+
+    # Convert to string to ensure .str accessor works, then replace last ':' with '.' for milliseconds
+    # This specifically addresses the 'HH:MM:SS:ms' format in your weather data
+    processed_series = series.astype(str).apply(
+        lambda x: x.rsplit(':', 1)[0] + '.' + x.rsplit(':', 1)[1] if ':' in x and x.count(':') == 3 else x
+    )
+
     try:
-        td_series = pd.to_timedelta(series, errors='coerce')
+        td_series = pd.to_timedelta(processed_series, errors='coerce')
         return td_series.dt.total_seconds()
     except Exception as e:
         st.warning(f"Could not convert column '{column_name}' to timedelta seconds: {e}. Some values might be invalid.")
-        # Attempt conversion for valid parts if possible, else return NaNs
-        return pd.to_timedelta(series, errors='coerce').dt.total_seconds()
+        return pd.to_timedelta(processed_series, errors='coerce').dt.total_seconds()
+
+def format_seconds_to_hms_ms(seconds):
+    """Converts a duration in seconds (float) to HH:MM:ss:SSS format string."""
+    if pd.isna(seconds):
+        return None
+    total_milliseconds = int(seconds * 1000)
+    hours = total_milliseconds // (1000 * 60 * 60)
+    total_milliseconds %= (1000 * 60 * 60)
+    minutes = total_milliseconds // (1000 * 60)
+    total_milliseconds %= (1000 * 60)
+    seconds = total_milliseconds // 1000
+    milliseconds = total_milliseconds % 1000
+    return f"{hours:02}:{minutes:02}:{seconds:02}:{milliseconds:03}"
 
 
 # --- Preprocessing Functions for Each Dataset ---
@@ -91,12 +112,35 @@ def preprocess_session_results(df):
 
 def preprocess_weather_data(df):
     if df.empty: return pd.DataFrame()
+
     # 'Time' in weather_data is a timedelta string from session start
     df['SessionTimeSeconds'] = safe_to_timedelta_seconds(df.get('Time'), 'Time')
-    numeric_cols = ['AirTemp', 'TrackTemp', 'Humidity', 'Pressure', 'WindSpeed', 'Rainfall']
+
+    # Try converting other columns to numeric, coercing errors
+    numeric_cols = ['AirTemp', 'TrackTemp', 'Humidity', 'Pressure', 'WindSpeed']
     for col in numeric_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce')
+
+    # Robust handling for Rainfall:
+    if 'Rainfall' in df.columns:
+        # Attempt to convert to boolean first (handles 'True', 'False', '0', '1')
+        rainfall_mapped_bool = df['Rainfall'].astype(str).str.lower().map({
+            'true': True, '1': True, '1.0': True,
+            'false': False, '0': False, '0.0': False
+        }).copy()
+
+        if not rainfall_mapped_bool.isnull().all() and \
+           (True in rainfall_mapped_bool.unique() or False in rainfall_mapped_bool.unique()):
+            df['Rainfall'] = rainfall_mapped_bool.fillna(False)
+        else:
+            df['Rainfall'] = pd.to_numeric(df['Rainfall'], errors='coerce')
+            if df['Rainfall'].isnull().all():
+                df['Rainfall'] = False
+
+    # Add the formatted time column
+    df['SessionTimeFormatted'] = df['SessionTimeSeconds'].apply(format_seconds_to_hms_ms)
+
     return df
 
 
@@ -112,6 +156,8 @@ def preprocess_telemetry_summary(df):
             df[col] = pd.to_numeric(df[col], errors='coerce')
     if 'LapNumber' in df.columns:
         df['LapNumber'] = pd.to_numeric(df.get('LapNumber'), errors='coerce', downcast='integer')
+    if 'Driver' in df.columns:
+        df['Driver'] = df['Driver'].astype(str) # Ensure driver column is string type
     return df
 
 
@@ -127,14 +173,18 @@ def preprocess_tyre_stints(df):
 # --- Visualization Functions ---
 def display_event_info(df):
     st.subheader("Event Information")
-    if df.empty: return
+    if df.empty:
+        st.info("No event information available.")
+        return
     # Display as a more readable format, transposing it
     st.table(df.iloc[0].T.rename("Value"))
 
 
 def display_session_results(df):
     st.subheader("Session Results")
-    if df.empty: return
+    if df.empty:
+        st.info("No session results data available.")
+        return
 
     df_processed = preprocess_session_results(df.copy())
     if df_processed.empty:
@@ -163,7 +213,9 @@ def display_session_results(df):
 
 def display_lap_times(df):
     st.subheader("Lap Time Progression by Driver")
-    if df.empty: return
+    if df.empty:
+        st.info("No lap times data available.")
+        return
 
     laps_df_processed = preprocess_laps_data(df.copy())
     if laps_df_processed.empty:
@@ -201,7 +253,7 @@ def display_lap_times(df):
                     'LapTime': True,  # Show original timedelta string from CSV
                     'Compound': True,
                     'TyreLife': True,
-                    'Stint': True
+                    'Stint': True,
                 }
             )
             fig.update_layout(legend_title_text='Driver')
@@ -214,13 +266,20 @@ def display_lap_times(df):
 
 def display_weather_data(df):
     st.subheader("Weather Conditions Over Session")
-    if df.empty: return
+    if df.empty:
+        st.info("No weather data available from the source file.")
+        return
 
     weather_df_processed = preprocess_weather_data(df.copy())
+
     if weather_df_processed.empty or 'SessionTimeSeconds' not in weather_df_processed.columns or weather_df_processed[
         'SessionTimeSeconds'].isnull().all():
-        st.info("No processable weather data or session time.")
+        st.info("No processable weather data or session time for plotting after preprocessing.")
         return
+
+    # Display the DataFrame with the new formatted column
+    st.dataframe(weather_df_processed[['Time', 'SessionTimeFormatted', 'AirTemp', 'TrackTemp', 'Humidity', 'Pressure', 'WindSpeed', 'Rainfall']], hide_index=True)
+
 
     weather_vars = {
         'AirTemp': 'Air Temperature (°C)',
@@ -228,27 +287,83 @@ def display_weather_data(df):
         'Humidity': 'Humidity (%)',
         'Pressure': 'Air Pressure (hPa)',
         'WindSpeed': 'Wind Speed (km/h)',
-        'Rainfall': 'Rainfall (mm or True/False)'  # Rainfall might be boolean or numeric
+        'Rainfall': 'Rainfall'
     }
+
+    st.markdown("---")
+    st.write("#### Weather Trends")
+
+    # Determine tick values and labels for the x-axis to represent time delta
+    # Select a subset of data points for ticks to prevent overcrowding
+    num_ticks = 10
+    if len(weather_df_processed) > 0:
+        indices_for_ticks = np.linspace(0, len(weather_df_processed) - 1, num_ticks, dtype=int)
+        tick_vals_seconds = weather_df_processed['SessionTimeSeconds'].iloc[indices_for_ticks].tolist()
+        tick_texts_formatted = weather_df_processed['SessionTimeFormatted'].iloc[indices_for_ticks].tolist()
+    else:
+        tick_vals_seconds = []
+        tick_texts_formatted = []
+
 
     for var, label in weather_vars.items():
         if var in weather_df_processed.columns and not weather_df_processed[var].isnull().all():
-            st.markdown(f"#### {label}")
-            if var == 'Rainfall' and weather_df_processed[var].dtype == 'bool':  # Special handling for boolean rainfall
-                fig = px.scatter(weather_df_processed, x='SessionTimeSeconds', y=var,
-                                 labels={'SessionTimeSeconds': 'Session Time (seconds)', var: label},
-                                 title=f"{label} over Session")
-                fig.update_yaxes(tickvals=[0, 1], ticktext=['No Rain', 'Rain'])
+            st.markdown(f"##### {label}")
+
+            fig = go.Figure()
+
+            # Determine if Rainfall should be treated as boolean (1/0) or numeric
+            if var == 'Rainfall' and weather_df_processed[var].dtype == 'bool':
+                # For boolean rainfall, use scatter to clearly show discrete states
+                # Map True/False to numeric 1/0 for plotting
+                plot_y = weather_df_processed[var].astype(int)
+                fig.add_trace(go.Scatter(
+                    x=weather_df_processed['SessionTimeSeconds'],
+                    y=plot_y,
+                    mode='markers',
+                    name=label,
+                    marker=dict(
+                        color=np.where(weather_df_processed[var], 'blue', 'grey'),
+                        size=8
+                    ),
+                    hoverinfo='text',
+                    hovertext=[f"Time: {t}<br>{label}: {'Rain' if r else 'No Rain'}"
+                               for t, r in zip(weather_df_processed['SessionTimeFormatted'], weather_df_processed[var])]
+                ))
+                fig.update_yaxes(tickvals=[0, 1], ticktext=['No Rain', 'Rain'], title=label)
             else:
-                fig = px.line(weather_df_processed, x='SessionTimeSeconds', y=var,
-                              labels={'SessionTimeSeconds': 'Session Time (seconds)', var: label},
-                              title=f"{label} over Session", markers=True)
+                # For other numeric variables, use line plot
+                fig.add_trace(go.Scatter(
+                    x=weather_df_processed['SessionTimeSeconds'],
+                    y=weather_df_processed[var],
+                    mode='lines+markers',
+                    name=label,
+                    hoverinfo='text',
+                    hovertext=[f"Time: {t}<br>{label}: {val:.2f}" # Format numeric values to 2 decimal places
+                               for t, val in zip(weather_df_processed['SessionTimeFormatted'], weather_df_processed[var])]
+                ))
+                fig.update_yaxes(title=label) # Set y-axis title for numeric plots
+
+            fig.update_layout(
+                title=f"{label} over Session",
+                xaxis=dict(
+                    title='Session Time',
+                    tickmode='array',
+                    tickvals=tick_vals_seconds,
+                    ticktext=tick_texts_formatted,
+                    type='linear' # Ensure axis is linear for numeric seconds
+                ),
+                hovermode='x unified' # Ensures hover shows all relevant data at a given x
+            )
             st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info(f"No valid data to plot for '{label}'.")
 
 
 def display_tyre_stints(df):
     st.subheader("Tyre Stint Summary")
-    if df.empty: return
+    if df.empty:
+        st.info("No tyre stints data available.")
+        return
 
     stints_df_processed = preprocess_tyre_stints(df.copy())
     if stints_df_processed.empty:
@@ -277,7 +392,9 @@ def display_tyre_stints(df):
 
 def display_telemetry_summary(df):
     st.subheader("Lap Telemetry Summary (Averages/Max per Lap)")
-    if df.empty: return
+    if df.empty:
+        st.info("No telemetry summary data available.")
+        return
 
     telemetry_df_processed = preprocess_telemetry_summary(df.copy())
     if telemetry_df_processed.empty:
@@ -288,13 +405,13 @@ def display_telemetry_summary(df):
     if st.checkbox("Show full telemetry summary table?", key="show_full_telemetry_table"):
         st.dataframe(telemetry_df_processed, hide_index=True)
 
-    # Example: AvgSpeed vs. LapNumber for selected driver
+    # Example: AvgSpeed vs. LapNumber for a single selected driver
     if 'Driver' in telemetry_df_processed.columns and \
             'LapNumber' in telemetry_df_processed.columns and \
             'AvgSpeed' in telemetry_df_processed.columns:
 
         st.markdown("---")
-        st.write("#### Average Speed per Lap")
+        st.write("#### Average Speed per Lap (Single Driver)")
         drivers_telemetry = sorted(telemetry_df_processed['Driver'].unique())
         if drivers_telemetry:
             selected_driver_telemetry = st.selectbox("Select Driver for Telemetry Detail:", drivers_telemetry,
@@ -309,6 +426,34 @@ def display_telemetry_summary(df):
                 st.plotly_chart(fig, use_container_width=True)
             else:
                 st.info(f"No telemetry data for {selected_driver_telemetry}.")
+
+        # New: Compare Avg Speed Plot among multiple drivers
+        st.markdown("---")
+        st.write("#### Average Speed Comparison Among Drivers")
+        if drivers_telemetry:
+            default_drivers_comparison = drivers_telemetry[:min(len(drivers_telemetry), 3)] # Default to 3 for comparison
+            selected_drivers_comparison = st.multiselect(
+                "Select Drivers for Average Speed Comparison:", drivers_telemetry,
+                default=default_drivers_comparison,
+                key="telemetry_drivers_compare_select"
+            )
+
+            if selected_drivers_comparison:
+                compare_df = telemetry_df_processed[
+                    telemetry_df_processed['Driver'].isin(selected_drivers_comparison)
+                ].sort_values(by=['Driver', 'LapNumber'])
+
+                if not compare_df.empty:
+                    fig_compare = px.line(compare_df, x='LapNumber', y='AvgSpeed', color='Driver',
+                                          title="Average Speed Comparison by Driver",
+                                          labels={'AvgSpeed': 'Average Speed (km/h)'},
+                                          markers=True)
+                    fig_compare.update_layout(legend_title_text='Driver')
+                    st.plotly_chart(fig_compare, use_container_width=True)
+                else:
+                    st.info("No data for selected drivers for comparison.")
+            else:
+                st.info("Select at least one driver to compare average speed.")
 
 
 # --- Streamlit App UI and Logic ---

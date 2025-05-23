@@ -4,17 +4,12 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="9c8171c1-fdf2-44a5-b58e-d42a22e2fe7f" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/.idea/f1DataEngineering.iml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/inspectionProfiles/Project_Default.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/inspectionProfiles/profiles_settings.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/modules.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/extract/f1_dataExtractor.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/transform/f1_dataTransform.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/streamlit.py" afterDir="false" />
+    <list default="true" id="9c8171c1-fdf2-44a5-b58e-d42a22e2fe7f" name="Changes" comment="Initial files">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/extract/f1_dataExtractor.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/extract/f1_dataExtractor.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/transform/f1_dataTransform.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/transform/f1_dataTransformer.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/streamlit_app.py" beforeDir="false" afterPath="$PROJECT_DIR$/streamlit_app.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -31,9 +26,12 @@
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
-  <component name="ProjectColorInfo"><![CDATA[{
-  "associatedIndex": 4
-}]]></component>
+  <component name="MarkdownSettingsMigration">
+    <option name="stateVersion" value="1" />
+  </component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 4
+}</component>
   <component name="ProjectId" id="2xPwxzDdeHUCCefOHjuvKjniLQU" />
   <component name="ProjectLevelVcsManager" settingsEditedManually="true" />
   <component name="ProjectViewState">
@@ -44,6 +42,8 @@
   "keyToString": {
     "Python.f1_dataExtractor.executor": "Run",
     "Python.f1_dataTransform.executor": "Run",
+    "Python.f1_dataTransformer.executor": "Run",
+    "Python.streamlit_app.executor": "Run",
     "RunOnceActivity.OpenProjectViewOnStart": "true",
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "git-widget-placeholder": "master"
@@ -70,6 +70,19 @@
       <option name="presentableId" value="Default" />
       <updated>1747853268253</updated>
     </task>
+    <task id="LOCAL-00001" summary="Initial files">
+      <option name="closed" value="true" />
+      <created>1747879981440</created>
+      <option name="number" value="00001" />
+      <option name="presentableId" value="LOCAL-00001" />
+      <option name="project" value="LOCAL" />
+      <updated>1747879981440</updated>
+    </task>
+    <option name="localTasksCounter" value="2" />
     <servers />
+  </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="Initial files" />
+    <option name="LAST_COMMIT_MESSAGE" value="Initial files" />
   </component>
 </project>

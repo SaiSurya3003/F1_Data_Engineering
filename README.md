@@ -108,7 +108,7 @@ python src/extract/f1_dataExtractor.py
 Process the extracted data:
 
 ```bash
-python src/transform/f1_dataTransform.py
+python src/transform/f1_dataTransformer.py
 ```
 
 This converts:
@@ -264,7 +264,7 @@ format_arrow_to_hhmmssms()  # Absolute time conversion
 
 ### 2. Transformation Phase
 ```python
-# Key functions in f1_dataTransform.py
+# Key functions in f1_dataTransformer.py
 parse_custom_format_to_timedelta()  # Custom time string parsing
 transform_csv_file()  # File-by-file transformation
 main_transform()  # Batch processing
